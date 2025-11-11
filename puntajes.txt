@@ -1,0 +1,12 @@
+xacafan,10,2
+player1,5,3
+novato,1,5
+maria,3,4
+juan,7,2
+ana,4,1
+pro_gamer,12,6
+tester,0,0
+invitado,0,1
+yextep,0,1
+varimo,1,0
+val,0,1

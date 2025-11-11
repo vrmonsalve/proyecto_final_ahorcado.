@@ -1,0 +1,15 @@
+categoria:frutas
+manzana,pera,banano,naranja,fresa,mango,piña,melocoton,kiwi,uva
+
+categoria:paises
+colombia,argentina,mexico,espana,brasil,canada,alemania,francia,italia,japon
+
+categoria:animales
+perro,gato,elefante,tigre,leon,cebra,jirafa,caballo,cocodrilo,pinguino
+
+categoria:tecnologia
+computadora,programacion,inteligencia artificial,robotica,software,hardware,algoritmo,base de datos,red,criptomoneda
+
+categoria:deportes
+futbol,basket,tenis,beisbol,voleibol,natacion,ciclismo,atletismo,boxeo,esgrima
+
