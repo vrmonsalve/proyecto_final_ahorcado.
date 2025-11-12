@@ -1,48 +1,46 @@
-"""
-AHORCADO - Juego modular en Python
-Archivos requeridos (misma carpeta):
- - palabras.txt  (formato: 'categoria:frutas' en una línea, la(s) siguientes contienen palabras separadas por comas)
- - puntajes.txt  (formato por línea: apodo,victorias,derrotas)
-
-Ejecución:
-    python ahorcado.py
-
-Características:
- - Carga categorías y palabras desde palabras.txt
- - Pide apodo nuevo (único) y lo valida contra puntajes.txt
- - Permite elegir categoría
- - Lógica del juego con tablero, validación de letras y límite de intentos
- - Actualiza puntajes en puntajes.txt (victoria/derrota)
- - Muestra Top 10 de jugadores por victorias
-
-Estructura modular: funciones con docstrings.
-"""
-
-import os
 import random
 import sys
+import os
+import time
+import tempfile
 
 PALABRAS_FILE = 'palabras.txt'
 PUNTAJES_FILE = 'puntajes.txt'
-INTENTOS_POR_DEFECTO = 6
 
+# ---------------------- UTILIDADES DE ENTRADA ----------------------
 
-def cargar_palabras(ruta=PALABRAS_FILE):
-    """Lee el archivo de palabras y devuelve un dict: {categoria: [palabra, ...], ...}.
+def safe_input(prompt, default=None):
+    try:
+        return input(prompt)
+    except (EOFError, OSError):
+        return default
 
-    Formato aceptado (flexible):
-      categoria:frutas
-      manzana,pera,banano
+def is_interactive():
+    try:
+        return sys.stdin.isatty()
+    except Exception:
+        return False
 
-    Ignora líneas vacías. Maneja mayúsculas/minúsculas.
-    """
-    if not os.path.exists(ruta):
-        raise FileNotFoundError(f"No existe el archivo de palabras: {ruta}")
+# ---------------------- CARGA DE ARCHIVOS ----------------------
+
+def cargar_palabras(path=PALABRAS_FILE, crear_si_falta=True):
+    if not os.path.exists(path):
+        if crear_si_falta:
+            ejemplo = """categoria:frutas
+manzana,pera,banano,naranja,fresa,mango,piña,melocoton,kiwi,uva
+
+categoria:animales
+perro,gato,elefante,tigre,leon,cebra,jirafa,caballo,cocodrilo,pinguino
+"""
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(ejemplo)
+            print(f"[i] Archivo '{path}' no encontrado: se ha creado un ejemplo en la carpeta actual.")
+        else:
+            raise FileNotFoundError(path)
 
     categorias = {}
     categoria_actual = None
-
-    with open(ruta, 'r', encoding='utf-8') as f:
+    with open(path, 'r', encoding='utf-8') as f:
         for raw in f:
             linea = raw.strip()
             if not linea:
@@ -51,215 +49,212 @@ def cargar_palabras(ruta=PALABRAS_FILE):
                 categoria_actual = linea.split(':', 1)[1].strip().lower()
                 categorias.setdefault(categoria_actual, [])
             else:
-                # Expect comma-separated words; allow spaces
                 palabras = [w.strip().lower() for w in linea.split(',') if w.strip()]
                 if categoria_actual is None:
-                    # Si no hay categoria definida, usar 'sin_categoria'
-                    categorias.setdefault('sin_categoria', [])
-                    categorias['sin_categoria'].extend(palabras)
+                    categorias.setdefault('sin_categoria', []).extend(palabras)
                 else:
                     categorias[categoria_actual].extend(palabras)
-
     return categorias
 
-
-def cargar_puntajes(ruta=PUNTAJES_FILE):
-    """Carga puntajes desde archivo. Devuelve dict {apodo: {'v':int,'d':int}}"""
+def cargar_puntajes(path=PUNTAJES_FILE):
     puntajes = {}
-    if not os.path.exists(ruta):
+    if not os.path.exists(path):
         return puntajes
-
-    with open(ruta, 'r', encoding='utf-8') as f:
+    with open(path, 'r', encoding='utf-8') as f:
         for raw in f:
             linea = raw.strip()
-            if not linea:
+            if not linea or ',' not in linea:
                 continue
             partes = [p.strip() for p in linea.split(',')]
             if len(partes) < 3:
                 continue
-            apodo, victorias, derrotas = partes[0], partes[1], partes[2]
+            apodo = partes[0]
             try:
-                puntajes[apodo] = {'v': int(victorias), 'd': int(derrotas)}
+                v = int(partes[1]); d = int(partes[2])
             except ValueError:
-                # saltar línea corrupta
                 continue
+            puntajes[apodo] = [v, d]
     return puntajes
 
+def guardar_puntajes(puntajes, path=PUNTAJES_FILE):
+    with open(path, 'w', encoding='utf-8') as f:
+        for apodo, (v, d) in puntajes.items():
+            f.write(f"{apodo},{v},{d}\n")
 
-def guardar_puntajes(puntajes, ruta=PUNTAJES_FILE):
-    """Guarda el dict de puntajes en el archivo en formato apodo,victorias,derrotas por línea."""
-    with open(ruta, 'w', encoding='utf-8') as f:
-        for apodo, stats in puntajes.items():
-            f.write(f"{apodo},{stats['v']},{stats['d']}\n")
+# ---------------------- INTERFAZ ----------------------
 
-
-def gestionar_jugador(puntajes):
-    """Solicita un apodo y valida que sea único. Si apodo no existe, lo añade con 0,0 y devuelve apodo y puntajes actualizado."""
-    while True:
-        apodo = input('Ingresa tu apodo (sin comas): ').strip()
-        if not apodo:
-            print('Apodo vacío. Ingresa uno válido.')
-            continue
-        if ',' in apodo:
-            print('El apodo no puede contener comas.')
-            continue
-        if apodo in puntajes:
-            print('Ese apodo ya existe. Elige otro.')
-            continue
-        # Apodo nuevo: añadir
-        puntajes[apodo] = {'v': 0, 'd': 0}
-        guardar_puntajes(puntajes)
-        return apodo
-
-
-def elegir_categoria(categorias):
-    """Muestra las categorías disponibles y permite elegir. Devuelve la clave de categoría seleccionada."""
-    claves = list(categorias.keys())
-    if not claves:
-        raise ValueError('No hay categorías disponibles en el archivo de palabras.')
-
-    print('\nCategorías disponibles:')
-    for i, c in enumerate(claves, start=1):
-        print(f"  {i}. {c} ({len(categorias[c])} palabras)")
-    print(f"  {len(claves)+1}. Aleatoria (cualquier categoría)")
-
-    while True:
-        try:
-            sel = input(f'Selecciona categoría [1-{len(claves)+1}]: ').strip()
-            if not sel:
-                print('Seleccion vacía. Ingresa un número.')
-                continue
-            idx = int(sel)
-            if 1 <= idx <= len(claves):
-                return claves[idx-1]
-            if idx == len(claves)+1:
-                return random.choice(claves)
-            print('Número fuera de rango.')
-        except ValueError:
-            print('Entrada inválida. Ingresa un número.')
-
-
-def mostrar_tablero(palabra, letras_acertadas):
-    """Devuelve la representación con guiones y letras acertadas."""
-    return ' '.join([ch if ch in letras_acertadas else '_' for ch in palabra])
-
-
-def jugar_partida(palabras_categoria, apodo, puntajes, intentos_max=INTENTOS_POR_DEFECTO):
-    """Lógica principal del juego. Devuelve True si gana, False si pierde."""
-    palabra = random.choice(palabras_categoria).lower()
-    palabra = palabra.strip()
-    letras_acertadas = set()
-    letras_erradas = set()
-
-    intentos_restantes = intentos_max
-
-    # Considerar caracteres especiales (espacios) como ya descubiertos
-    for ch in palabra:
-        if not ch.isalpha():
-            letras_acertadas.add(ch)
-
-    while True:
-        print('\n' + mostrar_tablero(palabra, letras_acertadas))
-        print(f'Intentos restantes: {intentos_restantes} | Errores: {", ".join(sorted(letras_erradas)) if letras_erradas else "ninguno"}')
-
-        # Revisar victoria
-        if all((ch in letras_acertadas) for ch in palabra):
-            print(f'¡Felicidades {apodo}! Adivinaste la palabra: {palabra}')
-            actualizar_puntajes(puntajes, apodo, True)
-            return True
-
-        if intentos_restantes <= 0:
-            print(f'Has perdido. La palabra era: {palabra}')
-            actualizar_puntajes(puntajes, apodo, False)
-            return False
-
-        entrada = input('Ingresa una letra: ').strip().lower()
-        if not entrada:
-            print('Entrada vacía. Intenta otra vez.')
-            continue
-        if len(entrada) != 1:
-            print('Ingresa solo una letra a la vez.')
-            continue
-        if not entrada.isalpha():
-            print('Ingresa solo letras del alfabeto.')
-            continue
-        if entrada in letras_acertadas or entrada in letras_erradas:
-            print('Ya ingresaste esa letra. Prueba otra.')
-            continue
-
-        if entrada in palabra:
-            letras_acertadas.add(entrada)
-            print('Letra correcta.')
-        else:
-            letras_erradas.add(entrada)
-            intentos_restantes -= 1
-            print('Letra incorrecta.')
-
-
-def actualizar_puntajes(puntajes, apodo, gano):
-    """Actualiza el dict de puntajes y lo guarda en archivo."""
-    if apodo not in puntajes:
-        puntajes[apodo] = {'v': 0, 'd': 0}
-    if gano:
-        puntajes[apodo]['v'] += 1
-    else:
-        puntajes[apodo]['d'] += 1
-    guardar_puntajes(puntajes)
-
-
-def mostrar_top_10(ruta=PUNTAJES_FILE):
-    """Lee puntajes y muestra top 10 ordenado por victorias desc, luego derrotas asc."""
-    puntajes = cargar_puntajes(ruta)
-    if not puntajes:
-        print('No hay puntajes registrados.')
-        return
-
-    lista = [(apodo, s['v'], s['d']) for apodo, s in puntajes.items()]
-    lista.sort(key=lambda x: (-x[1], x[2], x[0]))
-
-    print('\n===== TOP 10 JUGADORES =====')
-    print('Pos | Jugador | Victorias | Derrotas')
-    for i, (apodo, v, d) in enumerate(lista[:10], start=1):
-        print(f'{i:>3} | {apodo} | {v} | {d}')
-    print('============================\n')
-
+def dibujar_cabecera():
+    return r'''
+     █████╗ ██╗  ██╗ ██████╗ ██████╗  █████╗  ██████╗ ██████╗  █████╗ ██████╗ 
+    ██╔══██╗██║  ██║██╔════╝ ██╔══██╗██╔══██╗██╔════╝ ██╔══██╗██╔══██╗██╔══██╗
+    ███████║███████║██║  ███╗██████╔╝███████║██║  ███╗██████╔╝███████║██║  ██║
+    ██╔══██║██╔══██║██║   ██║██╔══██╗██╔══██║██║   ██║██╔══██╗██╔══██║██║  ██║
+    ██║  ██║██║  ██║╚██████╔╝██║  ██║██║  ██║╚██████╔╝██║  ██║██║  ██║██████╔╝
+    ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ 
+                            
+                    AHORCADO - VERSIÓN MEJORADA
+    '''
 
 def mostrar_menu():
-    print('\n--- MENÚ ---')
+    print(dibujar_cabecera())
+    print('--- MENÚ ---')
     print('1. Jugar partida')
     print('2. Mostrar Top 10')
     print('3. Salir')
 
+# ---------------------- LÓGICA DEL JUEGO ----------------------
 
-def main():
-    try:
-        categorias = cargar_palabras()
-    except Exception as e:
-        print('Error al cargar palabras:', e)
-        sys.exit(1)
+def elegir_dificultad(input_fn=safe_input):
+    prompt = ('\nSeleccione dificultad:\n'
+              '  1. Fácil (8 intentos)\n'
+              '  2. Normal (6 intentos)\n'
+              '  3. Difícil (4 intentos)\n'
+              '→ ')
+    sel = input_fn(prompt, '2')
+    if sel is None:
+        sel = '2'
+    sel = sel.strip()
+    return {'1': 8, '2': 6, '3': 4}.get(sel, 6)
 
-    puntajes = cargar_puntajes()
+def pedir_pista(palabra, letras_descubiertas):
+    opciones = [c for c in set(palabra) if c.isalpha() and c not in letras_descubiertas]
+    if not opciones:
+        return None
+    return random.choice(opciones)
+
+def jugar_partida(categorias, input_fn=safe_input, nombre_jugador='Anon'):
+    claves = list(categorias.keys())
+    if not claves:
+        print('[!] No hay categorías cargadas.')
+        return False
+    if is_interactive():
+        print('\nCategorías:')
+        for c in claves:
+            print(f' - {c} ({len(categorias[c])} palabras)')
+        elec = input_fn('\nEscribe el nombre de la categoría o deja vacío para aleatoria: ', '')
+        if elec is None or elec.strip() == '':
+            categoria = random.choice(claves)
+        else:
+            categoria = elec.strip().lower()
+            if categoria not in categorias:
+                print('[!] Categoría no encontrada — se usará una aleatoria.')
+                categoria = random.choice(claves)
+    else:
+        categoria = random.choice(claves)
+
+    palabra = random.choice(categorias[categoria]).lower().strip()
+    intentos = elegir_dificultad(input_fn)
+    letras_acertadas = set(ch for ch in palabra if not ch.isalpha())
+    letras_erradas = set()
+    inicio = time.time()
+
+    while True:
+        tablero = ' '.join([ch if ch in letras_acertadas else '_' for ch in palabra])
+        print('\n' + tablero)
+        print(f'Intentos: {intentos} | Errores: {", ".join(sorted(letras_erradas)) if letras_erradas else "ninguno"}')
+
+        if all((ch in letras_acertadas) for ch in palabra):
+            tiempo = int(time.time() - inicio)
+            bonus = max(0, 5 - tiempo // 10)
+            print(f'¡Felicidades {nombre_jugador}! Adivinaste la palabra: {palabra} (+{bonus} puntos bonus)')
+            return True
+        if intentos <= 0:
+            print(f'Has perdido. La palabra era: {palabra}')
+            return False
+
+        entrada = input_fn("Ingresa una letra, '/pista' o '/salir': ", '')
+        if entrada is None:
+            print('[!] Entrada no disponible, saliendo de la partida.')
+            return False
+        entrada = entrada.strip().lower()
+
+        if entrada == '/salir':
+            print('Abandonando...')
+            return False
+        if entrada == '/pista':
+            pista = pedir_pista(palabra, letras_acertadas)
+            if pista:
+                letras_acertadas.add(pista)
+                intentos -= 1
+                print(f'Pista: la letra {pista}')
+            else:
+                print('No hay pistas disponibles.')
+            continue
+        if len(entrada) != 1 or not entrada.isalpha():
+            print('Ingresa una letra válida.')
+            continue
+        letra = entrada
+        if letra in letras_acertadas or letra in letras_erradas:
+            print('Ya intentaste esa letra.')
+            continue
+        if letra in palabra:
+            letras_acertadas.add(letra)
+            print('Letra correcta!')
+        else:
+            letras_erradas.add(letra)
+            intentos -= 1
+            print('Letra incorrecta.')
+
+# ---------------------- TOP 10 ----------------------
+
+def mostrar_top10(path=PUNTAJES_FILE):
+    if not os.path.exists(path):
+        print('\nAún no hay registros de jugadores.\n')
+        return
+    puntajes = cargar_puntajes(path)
+    lista = sorted(puntajes.items(), key=lambda kv: (-kv[1][0], kv[1][1], kv[0]))
+    print('\n===== TOP 10 =====')
+    for i, (apodo, (v, d)) in enumerate(lista[:10], start=1):
+        print(f'{i}. {apodo} - {v} victorias, {d} derrotas')
+
+def guardar_resultado(nombre, gano, path=PUNTAJES_FILE):
+    datos = cargar_puntajes(path)
+    if nombre not in datos:
+        datos[nombre] = [0, 0]
+    if gano:
+        datos[nombre][0] += 1
+    else:
+        datos[nombre][1] += 1
+    guardar_puntajes(datos, path)
+
+# ---------------------- SECRETO OCULTO ----------------------
+
+def mostrar_secreto(categorias):
+    print("\n🔒 SECRETO OCULTO ACTIVADO 🔒")
+    print("Todas las palabras cargadas:\n")
+    for cat, palabras in categorias.items():
+        print(f"[{cat.upper()}]: {', '.join(palabras)}")
+    input("\nPresiona ENTER para volver al menú...")
+
+# ---------------------- MAIN ----------------------
+
+def main(argv):
+    if '--test' in argv:
+        return
+
+    categorias = cargar_palabras()
 
     while True:
         mostrar_menu()
-        opcion = input('Elige una opción [1-3]: ').strip()
-        if opcion == '1':
-            apodo = gestionar_jugador(puntajes)
-            categoria_clave = elegir_categoria(categorias)
-            palabras_categoria = categorias.get(categoria_clave, [])
-            if not palabras_categoria:
-                print('La categoría seleccionada no contiene palabras. Elige otra.')
-                continue
-            jugar_partida(palabras_categoria, apodo, puntajes)
-        elif opcion == '2':
-            mostrar_top_10()
-        elif opcion == '3':
-            print('Adiós.')
+        opcion = safe_input('→ ', '1')
+        if opcion is None:
+            print('[!] Entrada no disponible; saliendo.')
             break
-        else:
-            print('Opción inválida.')
+        opcion = opcion.strip().lower()
 
+        if opcion == '1':
+            nombre = safe_input('\nIngresa tu apodo: ', 'Anon') or 'Anon'
+            gano = jugar_partida(categorias, input_fn=safe_input, nombre_jugador=nombre)
+            guardar_resultado(nombre, gano)
+        elif opcion == '2':
+            mostrar_top10()
+        elif opcion == '3':
+            print('\nGracias por jugar. ¡Hasta pronto!')
+            break
+        elif opcion == 'secreto':
+            mostrar_secreto(categorias)
+        else:
+            print('[!] Opción inválida.')
 
 if __name__ == '__main__':
-    main()
-
+    main(sys.argv)
